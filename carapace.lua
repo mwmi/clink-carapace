@@ -384,7 +384,7 @@ end
 settings.add("carapace.enable", false, "enable carapace")
 
 local carapace_generator = clink.generator(1)
-local command_skip = { "clink", "scoop", "cmd", "cd" }
+local command_skip = { "clink", "scoop", "cmd" }
 
 function commands_exists(...)
     local args = { ... }
@@ -442,7 +442,7 @@ function carapace_generator:generate(line_state, match_builder)
     else
         cmd = "carapace " .. c .. " nushell ... " .. args
     end
-    local handle = io.popen(cmd, "r")
+    local handle = io.popen("2>nul " .. cmd, "r")
     if not handle then
         return false
     end
@@ -476,7 +476,7 @@ function carapace_generator:generate(line_state, match_builder)
         end
         local type = "none"
         if not item.description then
-            if not item.style and vc ~= "." and v == item.display then
+            if not item.style and os.isfile(v) then
                 type = "file"
             else
                 if item.display and item.display:sub(-1) == "/" then
