@@ -469,6 +469,9 @@ function carapace_generator:generate(line_state, match_builder)
         elseif v:sub(-1) == " " then
             v = v:sub(1, -2)
         end
+        if v:sub(1, 1) == "\"" and v:find(" ") then
+            v = v:sub(2)
+        end
         local suppressappend = false
         local vc = v:sub(-1)
         if vc == "." then
@@ -476,7 +479,7 @@ function carapace_generator:generate(line_state, match_builder)
         end
         local type = "none"
         if not item.description then
-            if not item.style and os.isfile(v) then
+            if not item.style and os.isfile(item.display) then
                 type = "file"
             else
                 if item.display and item.display:sub(-1) == "/" then
