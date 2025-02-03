@@ -416,8 +416,7 @@ function carapace_generator:generate(line_state, match_builder)
     local command = line_state:getword(1):lower()
     local c = path.getbasename(command)
     if c == "cd" then
-        local lw = line_state:getendword()
-        if lw == "/" then
+        if line_state:getendword() == "/" then
             match_builder:addmatches({ "/d", "/D", "/?" })
         else
             match_builder:addmatches({ clink.dirmatches(lw) })
@@ -432,12 +431,11 @@ function carapace_generator:generate(line_state, match_builder)
             return false
         end
     end
-    local cursor_pos = line_state:getcursor()
     local line = line_state:getline()
-    local args = line:sub(#command + 1, cursor_pos - 1)
-    local cursor_char = line:sub(cursor_pos - 1, cursor_pos - 1)
+    local pos = line_state:getcursor()
+    local args = line:sub(#command + line_state:getcommandoffset() + 1, pos - 1)
     local cmd = ""
-    if cursor_char == " " then
+    if line:sub(pos - 1, pos - 1) == " " then
         cmd = "carapace " .. c .. " nushell ... " .. args .. " \"\""
     else
         cmd = "carapace " .. c .. " nushell ... " .. args
