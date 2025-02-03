@@ -4,7 +4,7 @@ carapace support for clink
 
 ## Installation
 
-download script `carapace.lua` to your `scripts` folder (run `clink info`).
+download script [`carapace.lua`](https://raw.githubusercontent.com/mwmi/clink-carapace/refs/heads/main/carapace.lua) to your `scripts` folder (run `clink info`).
 
 ```cmd
 clink set carapace.enable true
