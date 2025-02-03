@@ -386,18 +386,24 @@ settings.add("carapace.enable", false, "enable carapace")
 local carapace_generator = clink.generator(1)
 local command_skip = { "clink", "scoop", "cmd", "cd" }
 
-
-function command_exists(cmd)
-    local handle = io.popen("where " .. cmd .. " 2>nul", "r")
-    if handle then
-        local result = handle:read("*a")
-        handle:close()
-        if result ~= "" then
-            return true
+function commands_exists(...)
+    local args = { ... }
+    local paths = string.explode(os.getenv("path"), ";")
+    local pathexts = string.explode(os.getenv("pathext"), ";")
+    if not paths or not pathexts or not args then
+        return true
+    end
+    for _, p in ipairs(paths) do
+        for _, e in ipairs(pathexts) do
+            for i = 1, #args do
+                if not os.isfile(path.join(p, args[i] .. e)) then
+                    break
+                end
+                return true
+            end
         end
     end
-    local exit_code = os.execute(cmd .. " --version > nul 2>&1 || " .. cmd .. " /? > nul 2>&1")
-    return exit_code == 0
+    return false
 end
 
 function carapace_generator:generate(line_state, match_builder)
@@ -412,13 +418,13 @@ function carapace_generator:generate(line_state, match_builder)
     if c == "cd" then
         local lw = line_state:getendword()
         if lw == "/" then
-            match_builder:addmatches({ "/d", "/D" })
+            match_builder:addmatches({ "/d", "/D", "/?" })
         else
             match_builder:addmatches({ clink.dirmatches(lw) })
         end
         return true
     end
-    if #c == 0 or not command_exists(c) then
+    if #c == 0 or not commands_exists(c, "carapace") then
         return false
     end
     for _, skip in ipairs(command_skip) do
@@ -436,7 +442,7 @@ function carapace_generator:generate(line_state, match_builder)
     else
         cmd = "carapace " .. c .. " nushell ... " .. args
     end
-    local handle = io.popen('2>nul ' .. cmd, "r")
+    local handle = io.popen(cmd, "r")
     if not handle then
         return false
     end
