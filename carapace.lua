@@ -416,7 +416,8 @@ function carapace_generator:generate(line_state, match_builder)
     local command = line_state:getword(1):lower()
     local c = path.getbasename(command)
     if c == "cd" then
-        if line_state:getendword() == "/" then
+        local lw = line_state:getendword()
+        if lw == "/" then
             match_builder:addmatches({ "/d", "/D", "/?" })
         else
             match_builder:addmatches({ clink.dirmatches(lw) })
