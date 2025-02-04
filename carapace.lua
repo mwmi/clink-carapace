@@ -381,22 +381,31 @@ function json.decode(str)
 end
 
 -----------------------------------------------------------------------------------
-settings.add("carapace.enable", false, "enable carapace")
+settings.add("carapace.enable", false, "Enable carapace argument auto-completion")
+settings.add("carapace.exclude", "scoop;cmd", "Exclude commands from carapace completion")
 
+local isfile = os.isfile
+local getalias = os.getalias
+local pathjoin = path.join
+local string_explode = string.explode
+local get_setting = settings.get
+local getbasename = path.getbasename
+local popen = io.popen
 local carapace_generator = clink.generator(1)
-local command_skip = { "clink", "scoop", "cmd" }
+local carapace_exclude = get_setting("carapace.exclude")
+local command_exclude = string_explode(carapace_exclude, ";", "\"")
 
 local function commands_exists(...)
     local args = { ... }
-    local paths = string.explode(os.getenv("path"), ";")
-    local pathexts = string.explode(os.getenv("pathext"), ";")
+    local paths = string_explode(os.getenv("path"), ";")
+    local pathexts = string_explode(os.getenv("pathext"), ";")
     if not paths or not pathexts or not args then
         return true
     end
-    for _, p in ipairs(paths) do
-        for _, e in ipairs(pathexts) do
-            for i = 1, #args do
-                if not os.isfile(path.join(p, args[i] .. e)) then
+    for i = 1, #paths do
+        for j = 1, #pathexts do
+            for k = 1, #args do
+                if #args[k] > 0 and not isfile(pathjoin(paths[i], args[k] .. pathexts[j])) then
                     break
                 end
                 return true
@@ -407,14 +416,63 @@ local function commands_exists(...)
 end
 
 function carapace_generator:generate(line_state, match_builder)
-    if not settings.get("carapace.enable") then
+    if not get_setting("carapace.enable") then
         return false
+    end
+    if carapace_exclude ~= get_setting("carapace.exclude") then
+        carapace_exclude = get_setting("carapace.exclude")
+        command_exclude = string_explode(carapace_exclude, ";", "\"")
     end
     if line_state:getwordcount() < 2 then
         return false
     end
     local command = line_state:getword(1):lower()
-    local c = path.getbasename(command)
+    local alias = getalias(command)
+    local alias_command = ""
+    local alias_args = ""
+    if alias then
+        local n = #alias
+        while n > 0 and alias:byte(n) == 32 do
+            n = n - 1
+        end
+        alias = alias:sub(1, n)
+        if alias:sub(-2) == "$*" then
+            alias = alias:sub(1, -3)
+            local start_pos = 0
+            local end_pos = 0
+            local quote = 0
+            for i = 1, #alias do
+                local b = alias:byte(i)
+                if b ~= 32 then
+                    if start_pos == 0 then
+                        start_pos = i
+                        if b == 34 or b == 39 then
+                            quote = t
+                        end
+                    else
+                        if quote ~= 0 and b == quote then
+                            end_pos = i
+                            break
+                        end
+                    end
+                elseif start_pos > 0 then
+                    if quote == 0 or i == #alias then
+                        end_pos = i - 1
+                        break
+                    end
+                end
+            end
+            if start_pos > 0 and end_pos > 0 then
+                alias_command = alias:sub(start_pos, end_pos)
+                if end_pos < #alias then
+                    alias_args = alias:sub(end_pos + 1)
+                end
+            end
+        else
+            return false
+        end
+    end
+    local c = getbasename((#alias_command > 0) and alias_command or command)
     if c == "cd" then
         local lw = line_state:getendword()
         if lw == "/" then
@@ -423,25 +481,49 @@ function carapace_generator:generate(line_state, match_builder)
             match_builder:addmatches({ clink.dirmatches(lw) })
         end
         return true
+    elseif c == "clink" or c == "clink_x64" then
+        if line_state:getwordcount() == 4 and line_state:getword(2) == "set" and line_state:getword(3) == "carapace.exclude" then
+            match_builder:addmatches({ {
+                match = carapace_exclude,
+                description = "Commands Excluded from Autocompletion",
+                type = "word",
+                suppressappend = true
+            }, {
+                match = carapace_exclude .. ";",
+                description = "Add Commands to Autocompletion Exclusion List",
+                type = "word",
+                suppressappend = true
+            }, {
+                match = "clear",
+                description = "Clear List",
+                type = "arg"
+            } })
+            return true
+        else
+            return false
+        end
     end
     if #c == 0 or not commands_exists(c, "carapace") then
         return false
     end
-    for _, skip in ipairs(command_skip) do
-        if c == skip then
+    for i = 1, #command_exclude do
+        if c == command_exclude[i] then
             return false
         end
     end
     local line = line_state:getline()
     local pos = line_state:getcursor()
     local args = line:sub(#command + line_state:getcommandoffset() + 1, pos - 1)
+    if #alias_args > 0 then
+        args = alias_args .. " " .. args
+    end
     local cmd = ""
     if line:sub(pos - 1, pos - 1) == " " then
         cmd = "carapace " .. c .. " nushell ... " .. args .. " \"\""
     else
         cmd = "carapace " .. c .. " nushell ... " .. args
     end
-    local handle = io.popen("2>nul " .. cmd, "r")
+    local handle = popen("2>nul " .. cmd, "r")
     if not handle then
         return false
     end
@@ -456,7 +538,8 @@ function carapace_generator:generate(line_state, match_builder)
     end
     local match = {}
     local matches = {}
-    for _, item in ipairs(data) do
+    for i = 1, #data do
+        local item = data[i]
         local v = item.value
         if #v > 2 and v:sub(-3) == "ERR" then
             clink.popuplist("Error", { {
@@ -478,26 +561,26 @@ function carapace_generator:generate(line_state, match_builder)
                 v = t
             end
         end
-        local type = "none"
+        local tp = "word"
         if not item.description then
-            if not item.style and os.isfile(item.display) then
-                type = "file"
+            if not item.style and isfile(item.display) then
+                tp = "file"
             else
                 if item.display and item.display:sub(-1) == "/" then
-                    type = "dir"
+                    tp = "dir"
                 end
             end
         elseif item.style then
-            type = "cmd"
+            tp = "cmd"
         end
         match = {
             match = v,
             display = item.display,
             description = item.description,
-            type = type,
+            type = tp,
             suppressappend = v:sub(-1) == "."
         }
-        table.insert(matches, match)
+        matches[#matches + 1] = match
     end
     if #matches == 0 then
         return false

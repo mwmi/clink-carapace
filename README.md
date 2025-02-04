@@ -4,15 +4,27 @@ carapace support for clink
 
 ## Installation
 
-download script [`carapace.lua`](https://raw.githubusercontent.com/mwmi/clink-carapace/refs/heads/main/carapace.lua) to your `scripts` folder (run `clink info`).
+download script [`carapace.lua`](https://raw.githubusercontent.com/mwmi/clink-carapace/refs/heads/main/carapace.lua) to your `scripts` folder ( run `clink info` to see the script paths ).
+
+## Usage
+
+> Enable carapace argument auto-completion
 
 ```cmd
 clink set carapace.enable true
 ```
 
+> Exclude commands from carapace completion
+
+```cmd
+clink set carapace.exclude scoop;cmd
+```
+
 ## Icon Support 
 
 download script  [`matchicons.lua`](https://raw.githubusercontent.com/chrisant996/clink-gizmos/refs/heads/main/matchicons.lua) to your `scripts` folder.
+
+> Enables icons in file completions
 
 ```cmd
 clink set matchicons.enable true
