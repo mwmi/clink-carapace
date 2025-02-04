@@ -390,7 +390,7 @@ local pathjoin = path.join
 local string_explode = string.explode
 local get_setting = settings.get
 local getbasename = path.getbasename
-local popen = io.popen
+local run = io.popenyield or io.popen
 local carapace_generator = clink.generator(1)
 local carapace_exclude = get_setting("carapace.exclude")
 local command_exclude = string_explode(carapace_exclude, ";", "\"")
@@ -399,15 +399,11 @@ local function commands_exists(...)
     local args = { ... }
     local paths = string_explode(os.getenv("path"), ";")
     local pathexts = string_explode(os.getenv("pathext"), ";")
-    if not paths or not pathexts or not args then
-        return true
-    end
+    if not paths or not pathexts or not args then return true end
     for i = 1, #paths do
         for j = 1, #pathexts do
             for k = 1, #args do
-                if #args[k] > 0 and not isfile(pathjoin(paths[i], args[k] .. pathexts[j])) then
-                    break
-                end
+                if #args[k] > 0 and not isfile(pathjoin(paths[i], args[k] .. pathexts[j])) then break end
                 return true
             end
         end
@@ -416,16 +412,12 @@ local function commands_exists(...)
 end
 
 function carapace_generator:generate(line_state, match_builder)
-    if not get_setting("carapace.enable") then
-        return false
-    end
+    if not get_setting("carapace.enable") then return false end
     if carapace_exclude ~= get_setting("carapace.exclude") then
         carapace_exclude = get_setting("carapace.exclude")
         command_exclude = string_explode(carapace_exclude, ";", "\"")
     end
-    if line_state:getwordcount() < 2 then
-        return false
-    end
+    if line_state:getwordcount() < 2 then return false end
     local command = line_state:getword(1):lower()
     local alias = getalias(command)
     local alias_command = ""
@@ -483,13 +475,14 @@ function carapace_generator:generate(line_state, match_builder)
         return true
     elseif c == "clink" or c == "clink_x64" then
         if line_state:getwordcount() == 4 and line_state:getword(2) == "set" and line_state:getword(3) == "carapace.exclude" then
+            local m = carapace_exclude:sub(-1) == ";" and carapace_exclude:sub(1, -2) or carapace_exclude
             match_builder:addmatches({ {
-                match = carapace_exclude,
+                match = m,
                 description = "Commands Excluded from Autocompletion",
                 type = "word",
                 suppressappend = true
             }, {
-                match = carapace_exclude .. ";",
+                match = m .. ";",
                 description = "Add Commands to Autocompletion Exclusion List",
                 type = "word",
                 suppressappend = true
@@ -503,39 +496,27 @@ function carapace_generator:generate(line_state, match_builder)
             return false
         end
     end
-    if #c == 0 or not commands_exists(c, "carapace") then
-        return false
-    end
+    if #c == 0 or not commands_exists(c, "carapace") then return false end
     for i = 1, #command_exclude do
-        if c == command_exclude[i] then
-            return false
-        end
+        if c == command_exclude[i] then return false end
     end
     local line = line_state:getline()
     local pos = line_state:getcursor()
     local args = line:sub(#command + line_state:getcommandoffset() + 1, pos - 1)
-    if #alias_args > 0 then
-        args = alias_args .. " " .. args
-    end
+    if #alias_args > 0 then args = alias_args .. " " .. args end
     local cmd = ""
     if line:sub(pos - 1, pos - 1) == " " then
         cmd = "carapace " .. c .. " nushell ... " .. args .. " \"\""
     else
         cmd = "carapace " .. c .. " nushell ... " .. args
     end
-    local handle = popen("2>nul " .. cmd, "r")
-    if not handle then
-        return false
-    end
+    local handle = run("2>nul " .. cmd)
+    if not handle then return false end
     local result = handle:read("*a")
     handle:close()
-    if #result < 3 then
-        return false
-    end
+    if #result < 3 then return false end
     local success, data = pcall(json.decode, result)
-    if not success or not data then
-        return false
-    end
+    if not success or not data then return false end
     local match = {}
     local matches = {}
     for i = 1, #data do
@@ -557,9 +538,7 @@ function carapace_generator:generate(line_state, match_builder)
         local p = v:find("=")
         if p then
             local t = v:sub(p + 1)
-            if #t > 0 then
-                v = t
-            end
+            if #t > 0 then v = t end
         end
         local tp = "word"
         if not item.description then
@@ -582,9 +561,7 @@ function carapace_generator:generate(line_state, match_builder)
         }
         matches[#matches + 1] = match
     end
-    if #matches == 0 then
-        return false
-    end
+    if #matches == 0 then return false end
     if matchicons and matchicons.addicons then
         matchicons.addicons(matches)
     end
