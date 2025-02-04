@@ -386,7 +386,7 @@ settings.add("carapace.enable", false, "enable carapace")
 local carapace_generator = clink.generator(1)
 local command_skip = { "clink", "scoop", "cmd" }
 
-function commands_exists(...)
+local function commands_exists(...)
     local args = { ... }
     local paths = string.explode(os.getenv("path"), ";")
     local pathexts = string.explode(os.getenv("pathext"), ";")
@@ -454,8 +454,8 @@ function carapace_generator:generate(line_state, match_builder)
     if not success or not data then
         return false
     end
-    local matches = {}
     local match = {}
+    local matches = {}
     for _, item in ipairs(data) do
         local v = item.value
         if #v > 2 and v:sub(-3) == "ERR" then
@@ -471,10 +471,12 @@ function carapace_generator:generate(line_state, match_builder)
         if v:sub(1, 1) == "\"" and v:find(" ") then
             v = v:sub(2)
         end
-        local suppressappend = false
-        local vc = v:sub(-1)
-        if vc == "." then
-            suppressappend = true
+        local p = v:find("=")
+        if p then
+            local t = v:sub(p + 1)
+            if #t > 0 then
+                v = t
+            end
         end
         local type = "none"
         if not item.description then
@@ -493,7 +495,7 @@ function carapace_generator:generate(line_state, match_builder)
             display = item.display,
             description = item.description,
             type = type,
-            suppressappend = suppressappend
+            suppressappend = v:sub(-1) == "."
         }
         table.insert(matches, match)
     end
