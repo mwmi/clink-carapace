@@ -383,16 +383,25 @@ end
 -----------------------------------------------------------------------------------
 settings.add("carapace.enable", false, "Enable carapace argument auto-completion")
 settings.add("carapace.exclude", "scoop;cmd", "Exclude commands from carapace completion")
+settings.add("carapace.timeout", 5, "Terminate carapace process on Timeout")
 
 local isfile = os.isfile
 local getalias = os.getalias
+local sleep = os.sleep
+local clock = os.clock
+local run = io.popenyield or io.popen
 local pathjoin = path.join
 local string_explode = string.explode
 local get_setting = settings.get
+local parsecolor = settings.parsecolor
 local getbasename = path.getbasename
-local run = io.popenyield or io.popen
+local carapace_execution = "carapace.exe"
 local carapace_generator = clink.generator(1)
 local carapace_exclude = get_setting("carapace.exclude")
+local carapace_co = nil
+local co_status = coroutine.status
+local co_yield = coroutine.yield
+local co_resume = coroutine.resume
 local command_exclude = string_explode(carapace_exclude, ";", "\"")
 
 local function commands_exists(...)
@@ -409,6 +418,43 @@ local function commands_exists(...)
         end
     end
     return false
+end
+
+local function carapace_run(cmd, timeout)
+    carapace_co = coroutine.create(function()
+        local f = run(cmd .. " 2>nul")
+        if f then
+            for l in f:lines() do
+                if #l > 0 then co_yield(l) end
+            end
+            co_yield(true)
+            f:close()
+        else
+            co_yield(false)
+        end
+    end)
+    local result = ""
+    local begin = clock()
+    while true do
+        local ok, r = co_resume(carapace_co)
+        if not ok or r == false then return false, nil end
+        if r == true then break end
+        if r then
+            begin = clock()
+            result = result .. r
+        else
+            if co_status(carapace_co) == "dead" then
+                break
+            end
+            if clock() - begin > timeout then
+                os.execute("taskkill /f /im " .. carapace_execution .. ">nul 2>nul")
+                return false, "Timeout"
+            end
+            sleep(0.01)
+        end
+    end
+    carapace_co = nil
+    return true, result
 end
 
 function carapace_generator:generate(line_state, match_builder)
@@ -468,6 +514,7 @@ function carapace_generator:generate(line_state, match_builder)
     if c == "cd" then
         local lw = line_state:getendword()
         if lw == "/" then
+            match_builder:setnosort()
             match_builder:addmatches({ "/d", "/D", "/?" })
         else
             match_builder:addmatches({ clink.dirmatches(lw) })
@@ -496,7 +543,7 @@ function carapace_generator:generate(line_state, match_builder)
             return false
         end
     end
-    if #c == 0 or not commands_exists(c, "carapace") then return false end
+    if #c == 0 or not commands_exists(c, carapace_execution) then return false end
     for i = 1, #command_exclude do
         if c == command_exclude[i] then return false end
     end
@@ -506,58 +553,87 @@ function carapace_generator:generate(line_state, match_builder)
     if #alias_args > 0 then args = alias_args .. " " .. args end
     local cmd = ""
     if line:sub(pos - 1, pos - 1) == " " then
-        cmd = "carapace " .. c .. " nushell ... " .. args .. " \"\""
+        cmd = carapace_execution .. " " .. c .. " export . " .. args .. " \"\""
     else
-        cmd = "carapace " .. c .. " nushell ... " .. args
+        cmd = carapace_execution .. " " .. c .. " export . " .. args
     end
-    local handle = run("2>nul " .. cmd)
-    if not handle then return false end
-    local result = handle:read("*a")
-    handle:close()
+    if carapace_co and co_status(carapace_co) ~= "dead" then
+        os.execute("taskkill /f /im " .. carapace_execution .. ">nul 2>nul")
+        clink.popuplist("Error", { {
+            value = "",
+            display = "Error",
+            description = "The coroutine is still running; attempting to terminate the process.",
+        } })
+        return true
+    end
+    local ok, result = carapace_run(cmd, 2)
+    if not ok then
+        if result == "Timeout" then
+            local timeout = get_setting("carapace.timeout")
+            if not timeout then timeout = 5 end
+            ok, result = carapace_run(cmd, timeout)
+            if not ok then
+                if result == "Timeout" then
+                    clink.popuplist("Error", { {
+                        value = "",
+                        display = "Timeout",
+                        description = "Execution timed out, terminating the process.",
+                    } })
+                else
+                    return false
+                end
+            end
+        else
+            return false
+        end
+    end
     if #result < 3 then return false end
     local success, data = pcall(json.decode, result)
     if not success or not data then return false end
+    local messages = data.messages
+    if messages and #messages > 0 then
+        clink.popuplist("Error", { {
+            value = "",
+            display = "Error",
+            description = messages[1],
+        } })
+        return true
+    end
+    local values = data.values
+    if not values or #values == 0 then return false end
     local match = {}
     local matches = {}
-    for i = 1, #data do
-        local item = data[i]
-        local v = item.value
-        if #v > 2 and v:sub(-3) == "ERR" then
-            clink.popuplist("Error", { {
-                value = v,
-                display = item.display,
-                description = item.description,
-            } })
-            return true
-        elseif v:sub(-1) == " " then
-            v = v:sub(1, -2)
-        end
-        if v:sub(1, 1) == "\"" and v:find(" ") then
-            v = v:sub(2)
-        end
-        local p = v:find("=")
-        if p then
-            local t = v:sub(p + 1)
-            if #t > 0 then v = t end
-        end
+    for i = 1, #values do
+        local item = values[i]
+        local value = item.value
+        local display = item.display
+        local description = item.description
+        local tag = item.tag
+        local style = item.style
+        local nospace = data.nospace
         local tp = "word"
-        if not item.description then
-            if not item.style and isfile(item.display) then
+        if tag then
+            if tag:sub(-5) == "files" then
                 tp = "file"
-            else
-                if item.display and item.display:sub(-1) == "/" then
+                if display and display:sub(-1) == "/" then
                     tp = "dir"
                 end
+            elseif tag:sub(-5) == "flags" or tag:sub(-8) == "commands" then
+                tp = "arg"
             end
-        elseif item.style then
-            tp = "cmd"
+        end
+        if style then
+            local color = parsecolor(style)
+            if color then
+                display = "\x1b[" .. color .. "m" .. display
+            end
         end
         match = {
-            match = v,
-            display = item.display,
-            description = item.description,
+            match = value,
+            display = display,
+            description = description,
             type = tp,
-            suppressappend = v:sub(-1) == "."
+            suppressappend = nospace and nospace == "*" or nospace:find(value:sub(-1)) ~= nil
         }
         matches[#matches + 1] = match
     end
