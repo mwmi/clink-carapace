@@ -516,10 +516,11 @@ function carapace_generator:generate(line_state, match_builder)
         if lw == "/" then
             match_builder:setnosort()
             match_builder:addmatches({ "/d", "/D", "/?" })
+            return true
         else
             match_builder:addmatches({ clink.dirmatches(lw) })
+            return false
         end
-        return true
     elseif c == "clink" or c == "clink_x64" then
         if line_state:getwordcount() == 4 and line_state:getword(2) == "set" and line_state:getword(3) == "carapace.exclude" then
             local m = carapace_exclude:sub(-1) == ";" and carapace_exclude:sub(1, -2) or carapace_exclude
