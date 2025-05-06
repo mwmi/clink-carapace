@@ -386,6 +386,7 @@ settings.add("carapace.exclude", "scoop;cmd", "Exclude commands from carapace co
 settings.add("carapace.timeout", 5, "Terminate carapace process on Timeout")
 
 local isfile = os.isfile
+local isdir = os.isdir
 local getalias = os.getalias
 local sleep = os.sleep
 local clock = os.clock
@@ -553,7 +554,8 @@ function carapace_generator:generate(line_state, match_builder)
     local args = line:sub(#command + line_state:getcommandoffset() + 1, pos - 1)
     if #alias_args > 0 then args = alias_args .. " " .. args end
     local cmd = ""
-    if line:sub(pos - 1, pos - 1) == " " then
+    local line_pos = line:sub(pos - 1, pos - 1)
+    if line_pos == " " then
         cmd = carapace_execution .. " " .. c .. " export . " .. args .. " \"\""
     else
         cmd = carapace_execution .. " " .. c .. " export . " .. args
@@ -567,7 +569,7 @@ function carapace_generator:generate(line_state, match_builder)
         } })
         return true
     end
-    local ok, result = carapace_run(cmd, 2)
+    local ok, result = carapace_run(cmd, 5)
     if not ok then
         if result == "Timeout" then
             local timeout = get_setting("carapace.timeout")
@@ -613,14 +615,38 @@ function carapace_generator:generate(line_state, match_builder)
         local style = item.style
         local nospace = data.nospace
         local tp = "word"
+        if (line_pos == "=" and clink.getargmatcher(command)) or (line_pos ~= "=" and value:find("=")) then
+            local vs = string_explode(value, "=")
+            if #vs > 1 then
+                value = vs[#vs]
+            end
+        end
+        if value:find(",") then
+            vs = string_explode(value, ",")
+            if #vs > 1 then
+                value = vs[#vs]
+            end
+        end
+        if value:find(";") then
+            vs = string_explode(value, ";")
+            if #vs > 1 then
+                value = vs[#vs]
+            end
+        end
         if tag then
-            if tag:sub(-5) == "files" then
+            if tag:sub(-5) == "files" or tag:sub(-11) == "directories"  then
                 tp = "file"
                 if display and display:sub(-1) == "/" then
                     tp = "dir"
                 end
             elseif tag:sub(-5) == "flags" or tag:sub(-8) == "commands" then
                 tp = "arg"
+            elseif tag:sub(-7) == "changes" then
+                if isdir(value) then
+                    tp = "dir"
+                else
+                    tp = "file"
+                end
             end
         end
         if style then
@@ -634,7 +660,8 @@ function carapace_generator:generate(line_state, match_builder)
             display = display,
             description = description,
             type = tp,
-            suppressappend = nospace and nospace == "*" or nospace:find(value:sub(-1)) ~= nil
+            suppressappend = nospace and nospace == "*" or (style == "yellow" and value:sub(1, 1) == "-") or
+                nospace:find(value:sub(-1)) ~= nil
         }
         matches[#matches + 1] = match
     end
